@@ -1,197 +1,159 @@
+# GRADIO parametric non-planar laboratory
 import math
-import streamlit as st
+import gradio as gr
 import fullcontrol as fc
 
-# --- 1. CORE WEB APP HEADER & OPEN-SOURCE CREDIT ---
-st.set_page_config(page_title="Parametric Non-Planar G-Code Lab", layout="wide")
-st.title("🌀 Parametric Non-Planar G-Code Lab")
-st.markdown("""
-Welcome to the community library! This web tool generates raw, unconstrained 3D print paths mathematically.
-*   **Powered by:** [FullControl GCODE Designer](https://github.com) (Full credit to Heinz-Loepmeier & FullControl contributors).
-*   **Target Machine Profile:** Optimized for standard 256x256mm build plates (e.g., Bambu Lab P1S/X1/A1).
-""")
-
-# --- 2. GLOBAL SIDEBAR CONFIGURATION (PRINTER SETTINGS) ---
-st.sidebar.header("🖨️ Printer Profile")
-center_x = st.sidebar.number_input("Bed Center X (mm)", value=128.0)
-center_y = st.sidebar.number_input("Bed Center Y (mm)", value=128.0)
-nozzle_diameter = st.sidebar.selectbox("Nozzle Diameter (mm)", [0.4, 0.6, 0.8], index=0)
-layer_height = st.sidebar.slider("Layer Height (mm)", 0.1, 0.4, 0.2, step=0.05)
-print_speed = st.sidebar.slider("Print Speed (mm/s)", 10, 150, 60)
-nozzle_temp = st.sidebar.slider("Nozzle Temp (°C)", 190, 270, 240)
-bed_temp = st.sidebar.slider("Bed Temp (°C)", 40, 90, 75)
-
-# --- 3. CHOOSE MODEL TO CUSTOMIZE ---
-model_choice = st.selectbox(
-    "Select a Model to Customize & Generate", 
-    ["1. Non-Planar Ribbon Cylinder", "2. Twisted Wave-Mesh Vase", "3. Parametric Gyroscopic Fidget Tile"]
-)
-
-# Initialize container for FullControl vector steps
-steps = []
-filename = "model.gcode"
-
 # =====================================================================
-# MODEL 1: NON-PLANAR RIBBON CYLINDER WITH ANTI-CHOP SMOOTH BASE
+# GEOMETRY ENGINE: CYLINDER
 # =====================================================================
-if model_choice == "1. Non-Planar Ribbon Cylinder":
-    st.subheader("⚙️ Cylinder Customization Parameters")
-    col1, col2 = st.columns(2)
-    with col1:
-        radius = st.slider("Cylinder Radius (mm)", 10.0, 100.0, 38.1)
-        total_height = st.slider("Total Height (mm)", 20.0, 200.0, 80.0)
-    with col2:
-        z_amplitude = st.slider("Non-Planar Wave Height (mm)", 0.0, 8.0, 2.5)
-        z_frequency = st.slider("Wave Count around Perimeter", 2, 12, 4)
-        
-    def generate_cylinder():
-        cyl_steps = []
-        base_layers = 5
-        total_layers = int(total_height / layer_height)
-        
-        # Smooth anti-chop base floor
-        for l_idx in range(base_layers):
-            lz = l_idx * layer_height
-            ring_spacing = 0.52
-            max_rings = int(radius / ring_spacing)
-            for r_idx in range(max_rings + 1, 6, -1):
-                r = r_idx * ring_spacing
-                for seg in range(73):
-                    angle = (seg / 72) * 2.0 * math.pi
-                    cyl_steps.append(fc.Point(x=center_x + r*math.cos(angle), y=center_y + r*math.sin(angle), z=lz))
-                    
-        # Wavy Upper Walls
-        for l_idx in range(base_layers, total_layers):
-            lz_base = l_idx * layer_height
-            factor = min(1.0, (lz_base - 5.0) / 12.0) if lz_base > 5.0 else 0.0
-            for seg in range(121):
-                angle = (seg / 120) * 2.0 * math.pi
-                z = lz_base + (z_amplitude * math.sin(angle * z_frequency) * factor)
-                cyl_steps.append(fc.Point(x=center_x + radius*math.cos(angle), y=center_y + radius*math.sin(angle), z=z))
-        return cyl_steps
-        
-    steps = generate_cylinder()
-    filename = "smooth_base_wavy_cylinder.gcode"
-
-# =====================================================================
-# MODEL 2: TWISTED WAVE-MESH VASE (ORGANIC GEOMETRIC PERIMETER)
-# =====================================================================
-elif model_choice == "2. Twisted Wave-Mesh Vase":
-    st.subheader("⚙️ Vase Customization Parameters")
-    col1, col2 = st.columns(2)
-    with col1:
-        base_radius = st.slider("Vase Radius (mm)", 15.0, 90.0, 40.0)
-        total_height = st.slider("Vase Height (mm)", 30.0, 250.0, 100.0)
-    with col2:
-        twist_rate = st.slider("Spiral Twist Rate", -0.1, 0.1, 0.04, step=0.01)
-        ripple_depth = st.slider("Rib Lattice Depth (mm)", 0.0, 6.0, 3.0)
-        
-    def generate_vase():
-        vase_steps = []
-        base_layers = 5
-        total_layers = int(total_height / layer_height)
-        
-        # Smooth flat floor
-        for l_idx in range(base_layers):
-            lz = l_idx * layer_height
-            for r_idx in range(int(base_radius/0.52) + 1, 5, -1):
-                r = r_idx * 0.52
-                for seg in range(73):
-                    angle = (seg / 72) * 2.0 * math.pi
-                    vase_steps.append(fc.Point(x=center_x + r*math.cos(angle), y=center_y + r*math.sin(angle), z=lz))
-                    
-        # Twisted Ribbon Shell
-        for l_idx in range(base_layers, total_layers):
-            lz_base = l_idx * layer_height
-            helix_shift = lz_base * twist_rate
-            factor = min(1.0, (lz_base - 5.0) / 15.0) if lz_base > 5.0 else 0.0
-            
-            for seg in range(145):
-                angle = (seg / 144) * 2.0 * math.pi
-                # Add geometric ripple variance
-                ripple = math.sin(angle * 12.0 + helix_shift) * ripple_depth * factor
-                r = base_radius + ripple
-                x = center_x + r * math.cos(angle + helix_shift)
-                y = center_y + r * math.sin(angle + helix_shift)
-                vase_steps.append(fc.Point(x=x, y=y, z=lz_base))
-        return vase_steps
-        
-    steps = generate_vase()
-    filename = "organic_twisted_vase.gcode"
-
-# =====================================================================
-# MODEL 3: PARAMETRIC SQUISHY FIDGET TILE
-# =====================================================================
-else:
-    st.subheader("⚙️ Fidget Customization Parameters")
-    col1, col2 = st.columns(2)
-    with col1:
-        tile_size = st.slider("Tile Width/Length (mm)", 20.0, 80.0, 40.0)
-        wave_pattern = st.slider("Wave Density (Frequency)", 0.1, 1.0, 0.4, step=0.1)
-    with col2:
-        spring_amplitude = st.slider("Fidget Spring Squash (mm)", 1.0, 4.0, 2.0)
-        
-    def generate_fidget():
-        fid_steps = []
-        cell_size = 8.0
-        total_layers = int(12.0 / layer_height) # Standard 12mm thick toy pocket pocket
-        min_x, min_y = center_x - (tile_size/2.0), center_y - (tile_size/2.0)
-        
-        # Generates a flexible wave spring tile configuration
-        for l_idx in range(total_layers):
-            lz = l_idx * layer_height
-            factor = math.sin((lz / 12.0) * math.pi) # Bulges physical spring compliance mid-body
-            
-            for gy in range(int(tile_size / cell_size)):
-                y_start = min_y + (gy * cell_size)
-                for gx in range(int(tile_size / cell_size)):
-                    x_start = min_x + (gx * cell_size)
-                    
-                    for step_idx in range(11):
-                        t = step_idx / 10
-                        x = x_start + (t * cell_size)
-                        # Adds a horizontal and vertical gyroscopic wobble shift
-                        y_bend = spring_amplitude * math.sin(x * wave_pattern + lz) * factor
-                        y = y_start + (t * cell_size) + y_bend
-                        z = lz + (spring_amplitude * math.cos(x * wave_pattern) * factor)
-                        fid_steps.append(fc.Point(x=x, y=y, z=z))
-        return fid_steps
-        
-    steps = generate_fidget()
-    filename = "squishy_fidget_tile.gcode"
-
-# =====================================================================
-# --- 4. G-CODE COMPILATION ENGINE & EXPORT ---
-# =====================================================================
-if steps:
-    st.success(f"Mathematical mesh model computed successfully! (Vectors: {len(steps)})")
+def generate_cylinder(radius, total_height, z_amplitude, z_frequency, nozzle_diameter, layer_height, print_speed, nozzle_temp, bed_temp):
+    steps = []
+    base_layers = 5
+    total_layers = int(total_height / layer_height)
+    center_x, center_y = 128.0, 128.0
     
-    # Process code parameter dictionary conversions
+    # Smooth anti-chop base floor
+    for l_idx in range(base_layers):
+        lz = l_idx * layer_height
+        ring_spacing = 0.52
+        max_rings = int(radius / ring_spacing)
+        for r_idx in range(max_rings + 1, 6, -1):
+            r = r_idx * ring_spacing
+            for seg in range(73):
+                angle = (seg / 72) * 2.0 * math.pi
+                steps.append(fc.Point(x=center_x + r*math.cos(angle), y=center_y + r*math.sin(angle), z=lz))
+                
+    # Wavy Upper Walls
+    for l_idx in range(base_layers, total_layers):
+        lz_base = l_idx * layer_height
+        factor = min(1.0, (lz_base - 5.0) / 12.0) if lz_base > 5.0 else 0.0
+        for seg in range(121):
+            angle = (seg / 120) * 2.0 * math.pi
+            z = lz_base + (z_amplitude * math.sin(angle * z_frequency) * factor)
+            steps.append(fc.Point(x=center_x + radius*math.cos(angle), y=center_y + radius*math.sin(angle), z=z))
+            
+    return steps
+
+# =====================================================================
+# GEOMETRY ENGINE: VASE
+# =====================================================================
+def generate_vase(base_radius, total_height, twist_rate, ripple_depth, nozzle_diameter, layer_height, print_speed, nozzle_temp, bed_temp):
+    steps = []
+    base_layers = 5
+    total_layers = int(total_height / layer_height)
+    center_x, center_y = 128.0, 128.0
+    
+    for l_idx in range(base_layers):
+        lz = l_idx * layer_height
+        for r_idx in range(int(base_radius/0.52) + 1, 5, -1):
+            r = r_idx * 0.52
+            for seg in range(73):
+                angle = (seg / 72) * 2.0 * math.pi
+                steps.append(fc.Point(x=center_x + r*math.cos(angle), y=center_y + r*math.sin(angle), z=lz))
+                
+    for l_idx in range(base_layers, total_layers):
+        lz_base = l_idx * layer_height
+        helix_shift = lz_base * twist_rate
+        factor = min(1.0, (lz_base - 5.0) / 15.0) if lz_base > 5.0 else 0.0
+        for seg in range(145):
+            angle = (seg / 144) * 2.0 * math.pi
+            ripple = math.sin(angle * 12.0 + helix_shift) * ripple_depth * factor
+            r = base_radius + ripple
+            x = center_x + r * math.cos(angle + helix_shift)
+            y = center_y + r * math.sin(angle + helix_shift)
+            steps.append(fc.Point(x=x, y=y, z=lz_base))
+            
+    return steps
+
+# =====================================================================
+# GEOMETRY ENGINE: FIDGET
+# =====================================================================
+def generate_fidget(tile_size, wave_pattern, spring_amplitude, nozzle_diameter, layer_height, print_speed, nozzle_temp, bed_temp):
+    steps = []
+    cell_size = 8.0
+    total_layers = int(12.0 / layer_height)
+    center_x, center_y = 128.0, 128.0
+    min_x, min_y = center_x - (tile_size/2.0), center_y - (tile_size/2.0)
+    
+    for l_idx in range(total_layers):
+        lz = l_idx * layer_height
+        factor = math.sin((lz / 12.0) * math.pi)
+        for gy in range(int(tile_size / cell_size)):
+            y_start = min_y + (gy * cell_size)
+            for gx in range(int(tile_size / cell_size)):
+                x_start = min_x + (gx * cell_size)
+                for step_idx in range(11):
+                    t = step_idx / 10
+                    x = x_start + (t * cell_size)
+                    y_bend = spring_amplitude * math.sin(x * wave_pattern + lz) * factor
+                    y = y_start + (t * cell_size) + y_bend
+                    z = lz + (spring_amplitude * math.cos(x * wave_pattern) * factor)
+                    steps.append(fc.Point(x=x, y=y, z=z))
+                    
+    return steps
+
+# =====================================================================
+# MAIN ROUTINE EXPORT COMPILER
+# =====================================================================
+def master_compiler(model_type, size, height, var1, var2, nozzle_dia, lay_height, speed, temp_nz, temp_bd):
+    if "Cylinder" in model_type:
+        steps = generate_cylinder(size, height, var1, int(var2), nozzle_dia, lay_height, speed, temp_nz, temp_bd)
+        out_name = "wavy_cylinder.gcode"
+    elif "Vase" in model_type:
+        steps = generate_vase(size, height, var1, var2, nozzle_dia, lay_height, speed, temp_nz, temp_bd)
+        out_name = "twisted_vase.gcode"
+    else:
+        steps = generate_fidget(size, var1, var2, nozzle_dia, lay_height, speed, temp_nz, temp_bd)
+        out_name = "fidget_tile.gcode"
+        
     print_settings = {
-        'extrusion_width': nozzle_diameter + 0.04,
-        'extrusion_height': layer_height,
-        'print_speed': print_speed * 60, # Converts mm/s to standard machine mm/min
-        'nozzle_temp': nozzle_temp,
-        'bed_temp': bed_temp
+        'extrusion_width': nozzle_dia + 0.04,
+        'extrusion_height': lay_height,
+        'print_speed': speed * 60,
+        'nozzle_temp': temp_nz,
+        'bed_temp': temp_bd
     }
     
-    # Compile text strings safely through the conversion matrix
-    gcode_output = fc.transform(
-        steps, 
-        'gcode', 
-        fc.GcodeControls(
-            printer_name='bambulab_x1', 
-            initialization_data=print_settings
-        )
-    )
+    gcode = fc.transform(steps, 'gcode', fc.GcodeControls(printer_name='bambulab_x1', initialization_data=print_settings))
+    gcode = gcode.replace(f"G1 F{speed * 60}", "G1 F900", 1)
     
-    # Clean first layer override mapping injection
-    gcode_output = gcode_output.replace(f"G1 F{print_speed * 60}", "G1 F900", 1)
+    # Save text file locally on server to feed download port
+    with open(out_name, "w") as f:
+        f.write(gcode)
+        
+    return out_name
+
+# --- GRADIO LAYOUT DRAWING ENVIRONMENT ---
+with gr.Blocks(title="Parametric Nonplanar Lab") as demo:
+    gr.Markdown("# 🌀 Open-Source Parametric Non-Planar G-Code Lab")
+    gr.Markdown("Powered by **FullControl GCODE Designer**. Adjust the sliders to generate your unconstrained machine toolpaths instantly.")
     
-    # Direct Web Application System Download Prompt
-    st.download_button(
-        label="💾 Download Ready-to-Print G-Code",
-        data=gcode_output,
-        file_name=filename,
-        mime="text/plain"
+    with gr.Row():
+        with gr.Column():
+            gr.Markdown("### 🖨️ 1. Printer Profile")
+            nozzle_dia = gr.Dropdown([0.4, 0.6, 0.8], value=0.4, label="Nozzle Size (mm)")
+            lay_height = gr.Slider(0.1, 0.4, value=0.2, step=0.05, label="Layer Height (mm)")
+            speed = gr.Slider(10, 150, value=60, label="Wall Speed (mm/s)")
+            temp_nz = gr.Slider(190, 270, value=240, label="Nozzle Temp (°C)")
+            temp_bd = gr.Slider(40, 90, value=75, label="Bed Temp (°C)")
+            
+        with gr.Column():
+            gr.Markdown("### ⚙️ 2. Shape Customization")
+            model_type = gr.Radio(["1. Ribbon Cylinder", "2. Twisted Vase", "3. Fidget Tile"], value="1. Ribbon Cylinder", label="Select Shape")
+            
+            # Parametric Multi-Use Sliders
+            size = gr.Slider(10.0, 100.0, value=38.1, label="Base Width/Radius (mm)")
+            height = gr.Slider(10.0, 250.0, value=80.0, label="Total Object Height (mm)")
+            var1 = gr.Slider(-0.1, 10.0, value=2.5, label="Modifier 1 (Wave Amp / Twist Rate / Density)")
+            var2 = gr.Slider(0.0, 24.0, value=4.0, label="Modifier 2 (Wave Count / Rib Depth / Compression)")
+            
+    btn = gr.Button("💾 Generate & Compile G-code File", variant="primary")
+    file_output = gr.File(label="Download Generated Machine Code")
+    
+    btn.click(
+        master_compiler, 
+        inputs=[model_type, size, height, var1, var2, nozzle_dia, lay_height, speed, temp_nz, temp_bd], 
+        outputs=file_output
     )
+
+demo.launch()
